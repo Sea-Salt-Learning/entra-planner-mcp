@@ -101,6 +101,9 @@ class GraphClient:
     async def plan(self, token: str, plan_id: str) -> Any:
         return await self._get(token, f"/planner/plans/{_seg(plan_id)}", "plan")
 
+    async def plan_details(self, token: str, plan_id: str) -> Any:
+        return await self._get(token, f"/planner/plans/{_seg(plan_id)}/details", "plan")
+
     async def plan_buckets(self, token: str, plan_id: str) -> tuple[list[Any], bool]:
         return await self._get_all(token, f"/planner/plans/{_seg(plan_id)}/buckets", "plan", 200)
 

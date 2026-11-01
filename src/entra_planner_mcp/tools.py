@@ -109,7 +109,61 @@ def _etag(value: str | None) -> str | None:
     return value
 
 
-def _task_summary(t: dict[str, Any]) -> dict[str, Any]:
+MAX_LABELS = 25
+LabelList = Annotated[list[Annotated[str, Field(min_length=1, max_length=100)]] | None, Field(max_length=MAX_LABELS)]
+
+
+def _label_names(plan_details: dict[str, Any]) -> dict[str, str]:
+    """category1..category25 -> label name, for the named labels only (Planner calls labels categories)."""
+    desc = plan_details.get("categoryDescriptions") or {}
+    names: dict[str, str] = {}
+    for n in range(1, MAX_LABELS + 1):
+        name = desc.get(f"category{n}")
+        if isinstance(name, str) and name.strip():
+            names[f"category{n}"] = name
+    return names
+
+
+def _applied_labels(t: dict[str, Any], names: dict[str, str]) -> list[str]:
+    applied = t.get("appliedCategories") or {}
+    keys = [k for k, v in applied.items() if v is True and re.fullmatch(r"category\d{1,2}", k)]
+    keys.sort(key=lambda k: int(k[8:]))
+    return [names.get(k, k) for k in keys]  # an unnamed label shows as its category key
+
+
+def _label_keys(requested: list[str], names: dict[str, str]) -> set[str]:
+    """Map label names (case-insensitive) to category keys; unknown names are an error."""
+    by_name: dict[str, list[str]] = {}
+    for key, name in names.items():
+        by_name.setdefault(name.strip().casefold(), []).append(key)
+    keys: set[str] = set()
+    unknown = []
+    for label in requested:
+        found = by_name.get(label.strip().casefold())
+        if found:
+            keys.update(found)
+        else:
+            unknown.append(label)
+    if unknown:
+        available = ", ".join(sorted(set(names.values()), key=str.casefold)) or "none (the plan has no named labels)"
+        raise ValueError(f"unknown label(s): {', '.join(unknown)}. This plan's labels are: {available}")
+    return keys
+
+
+def _first_bucket(buckets: list[Any]) -> str | None:
+    """The bucket Planner shows first: lowest orderHint (ordinal comparison)."""
+    ordered = sorted((b for b in buckets if b.get("id")), key=lambda b: str(b.get("orderHint") or ""))
+    return str(ordered[0]["id"]) if ordered else None
+
+
+def _task_summary(t: dict[str, Any], label_names: dict[str, str] | None = None) -> dict[str, Any]:
+    out = _task_core(t)
+    if label_names is not None:
+        out["labels"] = _applied_labels(t, label_names)
+    return out
+
+
+def _task_core(t: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": t.get("id"),
         "title": t.get("title"),
@@ -210,7 +264,10 @@ class PlannerTools:
         status: Literal["open", "completed", "all"] = "open",
         limit: Annotated[int, Field(ge=1, le=MAX_TASKS)] = 100,
     ) -> dict[str, Any]:
-        """Get a plan's buckets and tasks, optionally filtered by bucket, assignee, due date and status."""
+        """Get a plan's labels, buckets and tasks (each with its labels by name).
+
+        Optionally filtered by bucket, assignee, due date and status.
+        """
         async with _guard():
             principal, token = await self._token()
             who = await self._user_id(token, principal, assignee) if assignee else None
@@ -219,6 +276,7 @@ class PlannerTools:
                 before = _bound(due_before) + timedelta(days=1 if len(due_before) == 10 else 0)
             after = _bound(due_after) if due_after else None
             plan = await self._graph.plan(token, plan_id)
+            names = _label_names(await self._graph.plan_details(token, plan_id))
             buckets, _ = await self._graph.plan_buckets(token, plan_id)
             tasks, truncated = await self._graph.plan_tasks(token, plan_id, MAX_TASKS)
             out = []
@@ -237,21 +295,23 @@ class PlannerTools:
                     continue
                 if after and due and due < after:
                     continue
-                out.append(_task_summary(t))
+                out.append(_task_summary(t, names))
             return {
                 "plan": {"id": plan.get("id"), "title": plan.get("title")},
+                "labels": list(names.values()),
                 "buckets": [{"id": b.get("id"), "name": b.get("name")} for b in buckets],
                 "tasks": out[:limit],
                 "truncated": truncated or len(out) > limit,
             }
 
     async def planner_get_task(self, task_id: PlannerId) -> dict[str, Any]:
-        """Get one task with its description, checklist and links."""
+        """Get one task with its labels (by name), description, checklist and links."""
         async with _guard():
             _, token = await self._token()
             task = await self._graph.task(token, task_id)
             details = await self._graph.task_details(token, task_id)
-            out = _task_summary(task)
+            names = _label_names(await self._graph.plan_details(token, str(task.get("planId"))))
+            out = _task_summary(task, names)
             out.update(
                 {
                     "startDateTime": task.get("startDateTime"),
@@ -289,13 +349,25 @@ class PlannerTools:
         description: Notes | None = None,
         checklist: Annotated[list[str] | None, Field(max_length=MAX_CHECKLIST)] = None,
         assignees: Annotated[list[str] | None, Field(max_length=20)] = None,
+        labels: LabelList = None,
     ) -> dict[str, Any]:
-        """Create a task in a plan (optionally with bucket, due date, priority, notes, checklist, assignees)."""
+        """Create a task in a plan (optionally with bucket, due date, priority, notes, checklist, assignees, labels).
+
+        Without bucket_id the task goes in the plan's first bucket (the one Planner shows first, by orderHint).
+        labels are label names as shown by planner_get_plan; an unknown name is an error.
+        """
         async with _guard():
             principal, token = await self._token()
             body: dict[str, Any] = {"planId": plan_id, "title": title}
+            if not bucket_id:
+                buckets, _ = await self._graph.plan_buckets(token, plan_id)
+                bucket_id = _first_bucket(buckets)
             if bucket_id:
                 body["bucketId"] = bucket_id
+            names: dict[str, str] | None = None
+            if labels:
+                names = _label_names(await self._graph.plan_details(token, plan_id))
+                body["appliedCategories"] = dict.fromkeys(sorted(_label_keys(labels, names)), True)
             if due_date:
                 body["dueDateTime"] = _due(due_date)
             if priority:
@@ -309,7 +381,7 @@ class PlannerTools:
                     for a in assignees
                 }
             task = await self._graph.create_task(token, body)
-            out = _task_summary(task)
+            out = _task_summary(task, names)
             if description or checklist:
                 details_body: dict[str, Any] = {}
                 if description:
@@ -342,11 +414,16 @@ class PlannerTools:
         checklist_uncheck: Annotated[
             list[Annotated[str, Field(pattern=CHECKLIST_ID)]] | None, Field(max_length=MAX_CHECKLIST)
         ] = None,
+        labels: LabelList = None,
+        add_labels: LabelList = None,
+        remove_labels: LabelList = None,
         etag: ETag | None = None,
         details_etag: ETag | None = None,
     ) -> dict[str, Any]:
-        """Update a task's title, due date, bucket, progress, priority, notes or checklist.
+        """Update a task's title, due date, bucket, progress, priority, labels, notes or checklist.
 
+        labels sets the task's labels exactly (an empty list clears them); add_labels / remove_labels change
+        them incrementally. Use label names as shown by planner_get_plan; an unknown name is an error.
         Pass the etag/details_etag from planner_get_task to make sure nobody changed the task since you
         read it; otherwise the server reads the current version first. Checklist items can be added,
         checked or unchecked, not removed.
@@ -378,14 +455,31 @@ class PlannerTools:
                 checklist[item] = {"@odata.type": "microsoft.graph.plannerChecklistItem", "isChecked": False}
             if checklist:
                 details_body["checklist"] = checklist
-            if not task_body and not details_body:
+            label_change = labels is not None or bool(add_labels) or bool(remove_labels)
+            if not task_body and not details_body and not label_change:
                 raise ValueError("nothing to update")
 
             out: dict[str, Any] = {"id": task_id}
+            names: dict[str, str] | None = None
+            if label_change:
+                current = await self._graph.task(token, task_id)
+                names = _label_names(await self._graph.plan_details(token, str(current.get("planId"))))
+                applied = {k for k, v in (current.get("appliedCategories") or {}).items() if v is True}
+                if labels is not None:
+                    target = _label_keys(labels, names)
+                else:
+                    target = (applied | _label_keys(add_labels or [], names)) - _label_keys(remove_labels or [], names)
+                changes = dict.fromkeys(sorted(target - applied), True) | dict.fromkeys(sorted(applied - target), False)
+                if changes:
+                    task_body["appliedCategories"] = changes
+                if not etag:  # read-then-write: use the version we just read
+                    etag = str(current.get("@odata.etag"))
             if task_body:
                 tag = _etag(etag) or str((await self._graph.task(token, task_id)).get("@odata.etag"))
                 updated = await self._graph.update_task(token, task_id, tag, task_body)
-                out.update(_task_summary(updated) if updated else {"updated": True})
+                out.update(_task_summary(updated, names) if updated else {"updated": True})
+            elif label_change:
+                out["labels"] = _applied_labels(current, names or {})  # already as requested: nothing sent
             if details_body:
                 dtag = _etag(details_etag) or str((await self._graph.task_details(token, task_id)).get("@odata.etag"))
                 updated_d = await self._graph.update_task_details(token, task_id, dtag, details_body)

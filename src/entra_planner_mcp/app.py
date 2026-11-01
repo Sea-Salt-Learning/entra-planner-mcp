@@ -232,6 +232,10 @@ def build_app(
 ) -> ASGIApp:
     install_redaction()
     logging.getLogger().setLevel(settings.log_level)
+    # The SDK logs a failed tool call's error text at INFO; ours can echo user input (e.g. a label name), so keep
+    # that logger at WARNING or above whatever LOG_LEVEL is.
+    sdk_tool_log = logging.getLogger("mcp.server.mcpserver.server")
+    sdk_tool_log.setLevel(max(logging.WARNING, logging.getLevelName(settings.log_level)))
     http = http or httpx.AsyncClient(timeout=20.0, follow_redirects=False)
     jwks = JwksCache(settings.jwks_uri, http)
     validator = TokenValidator(settings, jwks)

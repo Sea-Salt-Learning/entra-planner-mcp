@@ -42,3 +42,12 @@ def test_redaction():
     rec = logging.LogRecord("x", logging.WARNING, __file__, 1, "token %s", (jwt_like,), None)
     assert RedactingFilter().filter(rec)
     assert jwt_like not in rec.getMessage()
+
+
+def test_tool_error_text_not_logged(make_client, caplog, capsys):
+    caplog.set_level(logging.DEBUG)
+    c = make_client(LOG_LEVEL="INFO")
+    out = call_tool(c, "planner_update_task", {"task_id": TASK, "labels": ["Secret label name"]})
+    assert out["isError"] is True
+    captured = capsys.readouterr()
+    assert "Secret label name" not in caplog.text + captured.err + captured.out

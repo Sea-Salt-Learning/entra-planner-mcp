@@ -28,17 +28,18 @@ this server: validate token -> On-Behalf-Of (client assertion = managed identity
 | Tool | What it does | Kind |
 |---|---|---|
 | `planner_list_plans` | Plans in the groups you belong to (`GET /me/planner/plans`) | read |
-| `planner_get_plan` | Buckets and tasks, filtered by bucket, assignee, due before/after, open/completed | read |
-| `planner_get_task` | Task plus description, checklist and links, with ETags | read |
+| `planner_get_plan` | Label names, buckets and tasks (with their labels by name), filtered by bucket, assignee, due before/after, open/completed | read |
+| `planner_get_task` | Task plus labels (by name), description, checklist and links, with ETags | read |
 | `planner_my_tasks` | Tasks assigned to you (`GET /me/planner/tasks`) | read |
-| `planner_create_task` | Create a task (bucket, due date, priority, notes, checklist, assignees) | write |
-| `planner_update_task` | Update title, due date, bucket, progress, priority, notes, checklist (add/check/uncheck) | write |
+| `planner_create_task` | Create a task (bucket - default the plan's first bucket by orderHint -, due date, priority, labels, notes, checklist, assignees) | write |
+| `planner_update_task` | Update title, due date, bucket, progress, priority, labels (set exactly, or add/remove), notes, checklist (add/check/uncheck) | write |
 | `planner_complete_task` | Set progress to 100% | write |
 | `planner_assign_task` | Add or remove assignees (user object IDs or `me`) | write |
 
 Writes use Planner ETags (`If-Match`). Pass the `etag` from `planner_get_task` for true optimistic concurrency;
 otherwise the server reads the current ETag first. A conflict returns "changed by someone else: re-read it and
-retry". Premium (Project) plans are not in Graph and are out of scope.
+retry". Labels are Planner's categories: tools use the plan's label names (`categoryDescriptions`), matched
+case-insensitively; an unknown name is an error and nothing is changed. Premium (Project) plans are not in Graph and are out of scope.
 
 ## Configuration (environment only)
 

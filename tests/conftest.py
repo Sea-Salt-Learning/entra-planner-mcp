@@ -88,8 +88,24 @@ class FakeGraph:
             "priority": 5,
             "dueDateTime": "2030-01-15T12:00:00Z",
             "assignments": {USER: {"orderHint": " !"}},
+            "appliedCategories": {"category1": True, "category4": True},
             "@odata.etag": 'W/"etag-1"',
         }
+        self.plan_details: dict[str, Any] = {
+            "id": PLAN,
+            "categoryDescriptions": {
+                "category1": "Urgent",
+                "category2": "Client A",
+                "category3": None,
+                "category4": "Blocked",
+                "category5": "",
+                "category25": "Internal",
+            },
+        }
+        self.buckets: list[dict[str, Any]] = [
+            {"id": "BucketLaterAbcdefghijklmno1", "name": "Later", "orderHint": "8585"},
+            {"id": BUCKET, "name": "To do", "orderHint": "8584 P!"},
+        ]
         self.details: dict[str, Any] = {
             "id": TASK,
             "description": "secret notes",
@@ -142,9 +158,13 @@ class FakeGraph:
         if m == "GET" and path.startswith("/planner/plans/") and path.count("/") == 3:
             return httpx.Response(404, json={"error": {"code": "NotFound"}})
         if m == "GET" and path == f"/planner/plans/{PLAN}/buckets":
-            return httpx.Response(200, json={"value": [{"id": BUCKET, "name": "To do"}]})
+            return httpx.Response(200, json={"value": self.buckets})
+        if m == "GET" and path == f"/planner/plans/{PLAN}/details":
+            return httpx.Response(200, json=self.plan_details)
         if m == "GET" and path == f"/planner/plans/{PLAN}/tasks":
             return httpx.Response(200, json={"value": [self.task, *self.extra_tasks]})
+        if m == "GET" and path.startswith("/planner/plans/"):
+            return httpx.Response(403, json={"error": {"code": "Forbidden"}})
         if m == "GET" and path == "/me/planner/tasks":
             return httpx.Response(200, json={"value": [self.task]})
         if path == f"/planner/tasks/{TASK}":
@@ -155,7 +175,14 @@ class FakeGraph:
                     return httpx.Response(412, json={"error": {"code": "PreconditionFailed"}})
                 body = json.loads(request.content)
                 for k, v in body.items():
-                    if k == "assignments":
+                    if k == "appliedCategories":
+                        cats = self.task.setdefault("appliedCategories", {})
+                        for cat, on in v.items():
+                            if on:
+                                cats[cat] = True
+                            else:
+                                cats.pop(cat, None)
+                    elif k == "assignments":
                         for uid, a in v.items():
                             if a is None:
                                 self.task["assignments"].pop(uid, None)
