@@ -1,0 +1,57 @@
+[project]
+name = "entra-planner-mcp"
+version = "0.1.0"
+description = "A stateless MCP server for Microsoft Planner using Entra ID On-Behalf-Of"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.3,<3",
+    "msal>=1.31",
+    "pyjwt[crypto]>=2.10",
+    "httpx>=0.28",
+    "uvicorn>=0.32",
+    "starlette>=0.48",
+]
+
+[project.scripts]
+entra-planner-mcp = "entra_planner_mcp.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/entra_planner_mcp"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "A", "C4", "SIM", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "S108"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["entra_planner_mcp"]
+
+[[tool.mypy.overrides]]
+module = ["msal", "msal.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
