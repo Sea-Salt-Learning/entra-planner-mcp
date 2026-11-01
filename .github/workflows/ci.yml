@@ -53,6 +53,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # On PRs scan the PR's own commits, not GitHub's synthetic merge commit (which isn't merged as-is:
+          # main is only ever fast-forwarded, so that commit never enters history).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Scan full history
@@ -67,6 +70,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # On PRs scan the PR's own commits, not GitHub's synthetic merge commit (which isn't merged as-is:
+          # main is only ever fast-forwarded, so that commit never enters history).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Identifier deny-list (tree + full history, matches never printed)

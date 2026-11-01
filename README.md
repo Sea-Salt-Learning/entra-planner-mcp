@@ -187,4 +187,8 @@ Tests use a fake JWKS and a fake Graph; nothing touches the network. For a local
   a fix), smoke test, CycloneDX SBOM, push to GHCR, cosign keyless signature + SBOM attestation, SLSA build
   provenance. Actions pinned by commit SHA with least-privilege permissions.
 
+Maintainers: `main` only moves by fast-forward to a commit whose checks passed (`git push origin <sha>:main`).
+Don't use GitHub's merge or squash buttons for human PRs: GitHub-made commits carry the merging account's
+primary e-mail unless that account keeps its e-mail private.
+
 See [SECURITY.md](SECURITY.md) to report a vulnerability. Licence: [MIT](LICENSE).
