@@ -1,0 +1,40 @@
+name: Dependabot merge
+
+# Dependabot PRs that pass CI are merged, then a release is dispatched (a merge made with GITHUB_TOKEN
+# does not trigger push workflows by itself). Major version bumps are left for a human.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Merge if not a major update, then release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,author,title \
+               --jq '.[] | select(.author.login == "app/dependabot") | .number' | head -1)
+          [ -n "$pr" ] || { echo "no open Dependabot PR for this branch"; exit 0; }
+          title=$(gh pr view -R "$REPO" "$pr" --json title --jq .title)
+          if echo "$title" | grep -Eq 'from v?([0-9]+)\..* to v?([0-9]+)\.' ; then
+            from=$(echo "$title" | sed -E 's/.*from v?([0-9]+)\..*/\1/'); to=$(echo "$title" | sed -E 's/.* to v?([0-9]+)\..*/\1/')
+            if [ "$from" != "$to" ]; then echo "major update ($from -> $to): leaving for review"; exit 0; fi
+          fi
+          gh pr merge -R "$REPO" "$pr" --squash --delete-branch
+          gh workflow run -R "$REPO" release.yml --ref main

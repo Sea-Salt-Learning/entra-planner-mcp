@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+    secrets:
+      DENYLIST_REGEX:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  TRIVY_IMAGE: docker.io/aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+  GITLEAKS_IMAGE: docker.io/zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+
+jobs:
+  test:
+    name: lint-type-test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+      - name: Install (locked)
+        run: |
+          uv python install 3.15
+          uv sync --locked --python 3.15
+      - name: Ruff
+        run: |
+          uv run --frozen ruff check src tests
+          uv run --frozen ruff format --check src tests
+      - name: Mypy
+        run: uv run --frozen mypy
+      - name: Pytest
+        run: uv run --frozen pytest -q
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan full history
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" "$GITLEAKS_IMAGE" git /repo --redact --no-banner --exit-code 1
+
+  denylist:
+    name: denylist
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Identifier deny-list (tree + full history, matches never printed)
+        env:
+          DENYLIST_REGEX: ${{ secrets.DENYLIST_REGEX }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ -z "$DENYLIST_REGEX" ]; then
+            if [ "$IS_FORK_PR" = "true" ]; then
+              echo "::warning::DENYLIST_REGEX is not available to fork pull requests; a maintainer re-runs this check after merge."
+              exit 0
+            fi
+            echo "::error::DENYLIST_REGEX secret is not set"
+            exit 1
+          fi
+          ./scripts/denylist-check.sh
+
+  trivy-fs:
+    name: trivy-fs
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Trivy filesystem scan (vulnerabilities, secrets, misconfiguration)
+        run: |
+          docker run --rm -v "$PWD:/src:ro" "$TRIVY_IMAGE" fs --quiet \
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 /src
