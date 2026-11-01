@@ -48,6 +48,7 @@ retry". Premium (Project) plans are not in Graph and are out of scope.
 | `ENTRA_API_CLIENT_ID` | yes | API app registration (client) ID; the expected `aud` |
 | `PUBLIC_BASE_URL` | yes | Canonical public URL of the MCP endpoint, e.g. `https://<app>.<env>.<region>.azurecontainerapps.io/mcp` (no trailing slash) |
 | `ENTRA_REQUIRED_SCOPE` | | Delegated scope name, default `Planner.Use` |
+| `ENTRA_REQUIRED_ROLE` | | If set (e.g. `Planner.User`), tokens must carry this app role in `roles`; otherwise **403** with no error code (authenticated but not permitted; no scope step-up can fix it). **Recommended** - see step 2.7 |
 | `ENTRA_ALLOWED_AUDIENCES` | | Extra accepted audiences (comma list); default the API client ID only |
 | `ENTRA_ALLOWED_CLIENT_IDS` | | If set, only tokens issued to these client apps (`azp`) are accepted. Recommended |
 | `ALLOWED_TOOLS` | | Comma list of tools to expose; default the four read-only tools |
@@ -59,6 +60,10 @@ retry". Premium (Project) plans are not in Graph and are out of scope.
 | `LOG_LEVEL` | | Default `WARNING`. `DEBUG` is refused in production. Tokens and task content are never logged |
 | `ALLOWED_ORIGINS` | | Accepted browser `Origin` values, default `https://claude.ai,https://claude.com` (requests without `Origin` are accepted) |
 | `ENV` | | `production` (default) or `development` |
+
+Start-up is optimised for scale-to-zero hosting: protected-resource metadata, health and the unauthenticated `401`
+are answered within about a second of the process starting, while the MCP SDK loads in the background (only an
+authenticated MCP call waits for it, up to 30 s, then gets `503` + `Retry-After`).
 
 Endpoints: `POST /mcp` (streamable HTTP, stateless, JSON responses), `GET /.well-known/oauth-protected-resource`
 and `/.well-known/oauth-protected-resource/mcp`, `GET /health/live`, `GET /health/ready` (ready = configuration
@@ -91,6 +96,11 @@ echo "MCP URL: https://$FQDN/mcp"
 5. API permissions, Microsoft Graph delegated: `Tasks.ReadWrite`, `User.Read`, `offline_access` (and
    `User.ReadBasic.All` only if you set `ENABLE_USER_LOOKUP=true`). Grant admin consent.
 6. Enterprise application: **Assignment required = Yes**; assign the users who may use the connector.
+7. **Also require an app role (recommended).** "Assignment required" is not enforced for every sign-in (for example
+   some administrator accounts have been seen to obtain tokens for an app they are not assigned to), so don't rely on
+   it alone. Add an app role (e.g. value `Planner.User`, allowed member types *Users/Groups*), assign each user **to
+   that role** on the API's enterprise application, and set `ENTRA_REQUIRED_ROLE=Planner.User`. Only users holding
+   the role get it in the token's `roles` claim; everyone else is refused by the server with 403.
 
 ### 3. Client app registration (what Claude signs in with)
 1. Register a second app, e.g. "Planner MCP for Claude".
@@ -120,12 +130,12 @@ az containerapp create -n $APP -g $RG --environment $ENVNAME \
   --cpu 0.25 --memory 0.5Gi --min-replicas 0 --max-replicas 2 \
   --system-assigned \
   --env-vars ENTRA_TENANT_ID=<tenant-id> ENTRA_API_CLIENT_ID=<api-app-id> \
-             ENTRA_ALLOWED_CLIENT_IDS=<client-app-id> PUBLIC_BASE_URL=https://$FQDN/mcp \
+             ENTRA_ALLOWED_CLIENT_IDS=<client-app-id> ENTRA_REQUIRED_ROLE=Planner.User PUBLIC_BASE_URL=https://$FQDN/mcp \
              ALLOWED_TOOLS=planner_list_plans,planner_get_plan,planner_get_task,planner_my_tasks
 az containerapp ingress update -n $APP -g $RG --allow-insecure false
 ```
 
-Add HTTP liveness/readiness probes on `/health/live` and `/health/ready` (port 8000). The managed identity
+Add HTTP probes on port 8000: startup `/health/live` (period 1 s, failure threshold 30), liveness `/health/live`, readiness `/health/ready` (period 3 s, timeout 3 s). Short startup/readiness periods matter with scale to zero: traffic waits for the first passing readiness probe. The managed identity
 needs **no Azure role assignments**.
 
 Optionally restrict ingress to your MCP client's egress range (for Claude, see Anthropic's published IP

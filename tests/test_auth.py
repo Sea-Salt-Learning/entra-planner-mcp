@@ -148,3 +148,38 @@ def test_ready_is_503_when_jwks_unreachable(make_client, graph):
     graph.handler = broken  # type: ignore[method-assign]
     c = make_client()
     assert c.get("/health/ready").status_code == 503
+
+
+# ---- required app role (ENTRA_REQUIRED_ROLE) -------------------------------------------------------
+ROLE_CASES = {
+    "missing roles claim": (make_token(), 403),
+    "empty roles": (make_token({"roles": []}), 403),
+    "wrong role": (make_token({"roles": ["Something.Else"]}), 403),
+    "roles not a list": (make_token({"roles": "Planner.User"}), 403),
+    "right role": (make_token({"roles": ["Other", "Planner.User"]}), 200),
+}
+
+
+@pytest.mark.parametrize("case", list(ROLE_CASES))
+def test_required_role(make_client, case):
+    token, expected = ROLE_CASES[case]
+    c = make_client(ENTRA_REQUIRED_ROLE="Planner.User")
+    r = rpc(c, "tools/list", token=token)
+    assert r.status_code == expected, case
+    if expected == 403:
+        www = r.headers["www-authenticate"]
+        assert f'resource_metadata="{METADATA_URL}"' in www
+        assert "error=" not in www.replace("error_description=", "")  # no error code, so no scope step-up
+        assert 'error_description="user is not assigned the required app role"' in www
+        assert r.json()["error"] == "forbidden"
+        assert "planner_list_plans" not in r.text
+
+
+def test_role_not_required_by_default(client):
+    assert rpc(client, "tools/list", token=make_token()).status_code == 200
+
+
+def test_role_checked_after_token_validity(make_client):
+    c = make_client(ENTRA_REQUIRED_ROLE="Planner.User")
+    expired_with_role = make_token({"roles": ["Planner.User"], "exp": int(time.time()) - 600})
+    assert rpc(c, "tools/list", token=expired_with_role).status_code == 401

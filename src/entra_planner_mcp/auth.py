@@ -25,9 +25,11 @@ MAX_TOKEN_LENGTH = 16_384
 class TokenError(Exception):
     """The bearer token is missing or invalid. The message is safe to return to the client."""
 
-    def __init__(self, message: str, *, insufficient_scope: bool = False) -> None:
+    def __init__(self, message: str, *, insufficient_scope: bool = False, forbidden: bool = False) -> None:
         super().__init__(message)
         self.insufficient_scope = insufficient_scope
+        # A valid token for a user who lacks the required app role: 403, and no step-up (more scopes can't help).
+        self.forbidden = forbidden
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class Principal:
     oid: str
     tid: str
     scopes: frozenset[str]
+    roles: frozenset[str]
     client_id: str
     token: str  # the raw access token, used only as the OBO user assertion; never logged
 
@@ -157,4 +160,10 @@ class TokenValidator:
         client_id = str(claims.get("azp") or claims.get("appid") or "")
         if self._s.allowed_client_ids and client_id not in self._s.allowed_client_ids:
             raise TokenError("token was issued to a client that is not allowed")
-        return Principal(oid=oid, tid=claims["tid"], scopes=scopes, client_id=client_id, token=token)
+        raw_roles = claims.get("roles") or []
+        roles = frozenset(r for r in raw_roles if isinstance(r, str)) if isinstance(raw_roles, list) else frozenset()
+        if self._s.required_role and self._s.required_role not in roles:
+            # Defence in depth: Entra's "assignment required" is not enforced for every account (for example some
+            # administrators), so the API also requires an app role that is only present for assigned users.
+            raise TokenError("user is not assigned the required app role", forbidden=True)
+        return Principal(oid=oid, tid=claims["tid"], scopes=scopes, roles=roles, client_id=client_id, token=token)

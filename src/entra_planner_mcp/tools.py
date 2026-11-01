@@ -8,7 +8,6 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Literal
 
@@ -19,10 +18,9 @@ from pydantic import Field
 
 from .auth import Principal
 from .config import GUID_RE, Settings
+from .context import current_principal
 from .graph import GraphClient, GraphError
 from .obo import GraphTokenProvider, OboError
-
-current_principal: ContextVar[Principal | None] = ContextVar("current_principal", default=None)
 
 PLANNER_ID = r"^[A-Za-z0-9_-]{8,64}$"
 CHECKLIST_ID = r"^[A-Za-z0-9_-]{1,64}$"

@@ -59,6 +59,7 @@ class Settings:
     api_client_id: str
     public_base_url: str
     required_scope: str = "Planner.Use"
+    required_role: str | None = None
     allowed_audiences: tuple[str, ...] = ()
     allowed_client_ids: tuple[str, ...] = ()
     allowed_tools: tuple[str, ...] = READ_TOOLS
@@ -146,6 +147,7 @@ class Settings:
             api_client_id=req("ENTRA_API_CLIENT_ID"),
             public_base_url=req("PUBLIC_BASE_URL"),
             required_scope=(e.get("ENTRA_REQUIRED_SCOPE") or "Planner.Use").strip(),
+            required_role=(e.get("ENTRA_REQUIRED_ROLE") or "").strip() or None,
             allowed_audiences=tuple(_csv(e.get("ENTRA_ALLOWED_AUDIENCES"))),
             allowed_client_ids=tuple(_csv(e.get("ENTRA_ALLOWED_CLIENT_IDS"))),
             allowed_tools=tuple(allowed_tools),
@@ -172,6 +174,8 @@ class Settings:
                 raise ConfigError("ENTRA_ALLOWED_CLIENT_IDS must be GUIDs")
         if not SCOPE_RE.match(self.required_scope):
             raise ConfigError("ENTRA_REQUIRED_SCOPE is not a valid scope name")
+        if self.required_role is not None and not SCOPE_RE.match(self.required_role):
+            raise ConfigError("ENTRA_REQUIRED_ROLE is not a valid app role value")
         parts = urlsplit(self.public_base_url)
         if parts.scheme != "https" and self.environment == "production":
             raise ConfigError("PUBLIC_BASE_URL must be https in production")

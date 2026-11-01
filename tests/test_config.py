@@ -43,3 +43,10 @@ def test_local_dev_secret_allowed_outside_production():
     )
     assert s.obo_credential == "local_dev_secret"
     assert "dev-only-value-123" not in repr(s)
+
+
+def test_required_role_validated():
+    assert settings(ENTRA_REQUIRED_ROLE="Planner.User").required_role == "Planner.User"
+    assert settings().required_role is None
+    with pytest.raises(ConfigError):
+        settings(ENTRA_REQUIRED_ROLE="bad role!")

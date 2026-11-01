@@ -16,7 +16,6 @@ from typing import Any, Protocol
 
 import anyio
 import httpx
-import msal
 
 from .config import Settings
 
@@ -110,6 +109,8 @@ class MsalOboProvider:
     def _client(self) -> Any:
         with self._app_lock:
             if self._app is None:
+                import msal  # imported on first use to keep start-up fast
+
                 self._app = msal.ConfidentialClientApplication(
                     client_id=self._client_id, authority=self._authority, client_credential=self._credential
                 )
