@@ -2,7 +2,7 @@
 FROM docker.io/astral/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
 
 # Build stage: install the locked dependencies (uv.lock pins every version and verifies every hash).
-FROM cgr.dev/chainguard/python:latest-dev@sha256:29ab100be9f9be1ec5e31d7b7c384134171ee8f052e24e2285e697538c199aa6 AS build
+FROM cgr.dev/chainguard/python:latest-dev@sha256:a41dd09d107afef6bdd9cc566e4663e504a90f5d5cb6ca7627928db5704631ad AS build
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_PROJECT_ENVIRONMENT=/app/venv \
@@ -17,7 +17,7 @@ COPY --chown=65532:65532 src/entra_planner_mcp /app/src/entra_planner_mcp
 RUN /app/venv/bin/python -m compileall -q /app/src
 
 # Runtime stage: distroless (no shell, no package manager), non-root.
-FROM cgr.dev/chainguard/python:latest@sha256:31dd69d84fe5235fe18f8ceb5b76620e6f44a0ce1f9b0d3a46c491576f8b453b
+FROM cgr.dev/chainguard/python:latest@sha256:f73b534b99afc3a17c9d7a863a688d9c2577de23e12af21d55ad7b3fdbaf83f0
 LABEL org.opencontainers.image.title="entra-planner-mcp" \
       org.opencontainers.image.description="Stateless MCP server for Microsoft Planner using Entra ID On-Behalf-Of" \
       org.opencontainers.image.licenses="MIT"
