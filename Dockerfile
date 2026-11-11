@@ -2,7 +2,7 @@
 FROM docker.io/astral/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 # Build stage: install the locked dependencies (uv.lock pins every version and verifies every hash).
-FROM cgr.dev/chainguard/python:latest-dev@sha256:14cedd98a16366409aa2b50c427b9b31c57eb5d29ea1f503b13c7456011f727a AS build
+FROM cgr.dev/chainguard/python:latest-dev@sha256:9f76d277ca81d3079eb3be24c742de3b6598f032fc9943fed6951ff99e581d02 AS build
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_PROJECT_ENVIRONMENT=/app/venv \
