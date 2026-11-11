@@ -1,16 +1,24 @@
 version: 2
+# Weekly, grouped per ecosystem (Sam 2026-11-11): nightly merges + releases used ~16 Actions min/day, a quarter of
+# the org's 2,000-minute budget. Security updates are not tied to this schedule and still open immediately.
 updates:
   - package-ecosystem: uv
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
+      day: monday
+      time: "01:00"
+      timezone: Europe/London
     groups:
       python:
         patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
+      day: monday
+      time: "01:00"
+      timezone: Europe/London
     groups:
       base-image:
         patterns: ["*"]
@@ -18,6 +26,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "01:00"
+      timezone: Europe/London
     groups:
       actions:
         patterns: ["*"]
